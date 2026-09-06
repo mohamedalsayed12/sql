@@ -18,10 +18,18 @@ Highlights:
        - recency (months since last order)
        - average order value
        - average monthly spend
+
+Notes:
+    - Age accounts for whether this year's birthday has occurred yet, rather
+      than just counting calendar-year boundaries crossed.
+    - Customers with a NULL birthdate are grouped as 'unknown' instead of
+      silently falling into '50 and above'.
+    - lifespan/recency use DATEDIFF(month, ...), which counts calendar-month
+      boundaries crossed, not elapsed days (e.g. Jan 31 -> Feb 1 counts as 1).
 ===============================================================================
 */
 
-CREATE VIEW gold.report_customers AS
+CREATE OR ALTER VIEW gold.report_customers AS
 WITH base_query AS(
     SELECT
         f.order_number,
@@ -33,7 +41,13 @@ WITH base_query AS(
         c.customer_number,
         CONCAT(c.first_name, ' ', c.last_name) AS customer_name,
         c.birthdate,
-        DATEDIFF(year, c.birthdate, GETDATE()) AS age
+        DATEDIFF(year, c.birthdate, GETDATE())
+            - CASE
+                WHEN (MONTH(c.birthdate) * 100 + DAY(c.birthdate))
+                     > (MONTH(GETDATE()) * 100 + DAY(GETDATE()))
+                THEN 1
+                ELSE 0
+              END AS age
     FROM gold.fact_sales f
     INNER JOIN gold.dim_customers c
         ON c.customer_key = f.customer_key
@@ -64,6 +78,7 @@ SELECT
     customer_name,
     age,
     CASE
+        WHEN age IS NULL THEN 'unknown'
         WHEN age < 20 THEN 'under 20'
         WHEN age BETWEEN 20 AND 29 THEN '20-29'
         WHEN age BETWEEN 30 AND 39 THEN '30-39'
